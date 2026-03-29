@@ -3,7 +3,13 @@ import { z } from 'zod';
 const envSchema = z.object({
   // Application
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  API_PORT: z.coerce.number().int().min(1024).max(65535).default(3001),
+  // Railway injects PORT; fall back to 3001 for local dev
+  API_PORT: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(65535)
+    .default(process.env['PORT'] ? Number(process.env['PORT']) : 3001),
   CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 

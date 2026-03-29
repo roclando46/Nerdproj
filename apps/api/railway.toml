@@ -1,0 +1,12 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd ../.. && npm ci && npx turbo run build --filter=@dcs/api..."
+
+[deploy]
+startCommand = "cd ../.. && npm run db:migrate:prod && node apps/api/dist/server.js"
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 3
+
+[[deploy.healthchecks]]
+type = "path"
+path = "/api/v1/health"

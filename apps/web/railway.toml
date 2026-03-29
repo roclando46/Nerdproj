@@ -1,0 +1,6 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd ../.. && npm ci && npx turbo run build --filter=@dcs/web..."
+
+[deploy]
+startCommand = "npx serve dist -s -l $PORT"
