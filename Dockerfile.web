@@ -1,15 +1,26 @@
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
+
+# Declare build args so Railway injects the VITE_ env vars at build time
+ARG VITE_API_URL
+ARG VITE_AUTH0_DOMAIN
+ARG VITE_AUTH0_CLIENT_ID
+ARG VITE_AUTH0_AUDIENCE
+
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_AUTH0_DOMAIN=$VITE_AUTH0_DOMAIN
+ENV VITE_AUTH0_CLIENT_ID=$VITE_AUTH0_CLIENT_ID
+ENV VITE_AUTH0_AUDIENCE=$VITE_AUTH0_AUDIENCE
 
 # Copy full monorepo
 COPY . .
 
-# Install and build
+# Install and build (VITE_ vars baked in at this step)
 RUN npm ci
 RUN npx turbo run build --filter=@dcs/web...
 
 # Serve the static output
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 RUN npm install -g serve
 COPY --from=builder /app/apps/web/dist /app/dist
 

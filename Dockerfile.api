@@ -8,11 +8,12 @@ COPY . .
 # Install all dependencies from monorepo root
 RUN npm ci
 
-# Generate Prisma client (requires OpenSSL — now installed above)
+# Generate Prisma client
 RUN npx prisma generate --schema=packages/database/prisma/schema.prisma
 
 # Build API and its workspace dependencies
 RUN npx turbo run build --filter=@dcs/api...
 
-# Run migrations then start the server
-CMD ["sh", "-c", "npm run db:migrate:prod && node apps/api/dist/server.js"]
+# Run migrations directly (bypass turbo to ensure DATABASE_URL is passed through)
+# then start the server
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma && node apps/api/dist/server.js"]
