@@ -1,0 +1,17 @@
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+# Copy full monorepo
+COPY . .
+
+# Install and build
+RUN npm ci
+RUN npx turbo run build --filter=@dcs/web...
+
+# Serve the static output
+FROM node:22-alpine AS runner
+RUN npm install -g serve
+COPY --from=builder /app/apps/web/dist /app/dist
+
+EXPOSE 3000
+CMD ["sh", "-c", "serve -s /app/dist -l ${PORT:-3000}"]
