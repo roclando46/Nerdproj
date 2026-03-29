@@ -1,0 +1,2 @@
+export PATH="/c/Users/Ryan/AppData/Local/nvm/v22.22.2:$PATH"
+npx lint-staged

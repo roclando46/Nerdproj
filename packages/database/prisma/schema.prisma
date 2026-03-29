@@ -1,0 +1,477 @@
+// Digital Club Secretary — Prisma Schema
+// Generator
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMERATIONS ─────────────────────────────────────────────────────────────
+
+enum ClubSport {
+  CRICKET
+  RUGBY
+  BOTH
+}
+
+enum UserRole {
+  SUPER_ADMIN // DCS platform staff
+  CLUB_ADMIN // Club secretary / chairman
+  CLUB_OFFICIAL // Welfare officer, fixture secretary, etc.
+  CLUB_MEMBER // Regular member
+}
+
+enum DBSStatus {
+  NOT_REQUIRED
+  PENDING
+  VALID
+  EXPIRED
+  FLAGGED
+}
+
+enum TrainingType {
+  SAFE_HANDS // ECB Safe Hands (cricket safeguarding)
+  WELFARE_OFFICER
+  FIRST_AID
+  COACHING_LEVEL_1
+  COACHING_LEVEL_2
+  DBS_AWARENESS
+  CUSTOM
+}
+
+enum GrantStatus {
+  IDENTIFIED
+  RESEARCHING
+  IN_PROGRESS
+  SUBMITTED
+  AWARDED
+  REJECTED
+  WITHDRAWN
+}
+
+enum FixtureStatus {
+  SCHEDULED
+  CONFIRMED
+  CANCELLED
+  POSTPONED
+  COMPLETED
+}
+
+enum VolunteerRole {
+  SCORER
+  UMPIRE
+  FIRST_AIDER
+  TRANSPORT
+  TEA_DUTY
+  GROUNDSPERSON
+  SAFEGUARDING_OFFICER
+  CUSTOM
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  VIEW_SENSITIVE
+  EXPORT
+}
+
+// ─── MULTI-TENANCY CORE ───────────────────────────────────────────────────────
+
+model Club {
+  id    String    @id @default(cuid())
+  name  String
+  slug  String    @unique // URL-safe identifier, e.g. "durham-cricket-cc"
+  sport ClubSport
+
+  leagueName String?
+  countyName String?
+  websiteUrl String?
+  logoUrl    String?
+
+  stripeCustomerId String? @unique
+
+  // Address
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  county       String?
+  postcode     String?
+
+  // Safeguarding contacts
+  welfareOfficerName  String?
+  welfareOfficerEmail String?
+
+  // Governing body IDs
+  ecbClubId String? // England & Wales Cricket Board
+  rflClubId String? // Rugby Football League
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  members           ClubMember[]
+  users             User[]
+  complianceRecords ComplianceRecord[]
+  dbsRecords        DBSRecord[]
+  trainingRecords   TrainingRecord[]
+  grants            Grant[]
+  fixtures          Fixture[]
+  volunteerProfiles VolunteerProfile[]
+  auditLogs         AuditLog[]
+
+  @@index([slug])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  auth0Id   String   @unique // JWT 'sub' claim
+  email     String   @unique
+  firstName String
+  lastName  String
+  avatarUrl String?
+  role      UserRole @default(CLUB_MEMBER)
+  isActive  Boolean  @default(true)
+
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  clubMembership       ClubMember?
+  grantApplications    GrantApplication[]
+  fixtureCreations     Fixture[]             @relation("FixtureCreator")
+  volunteerAssignments VolunteerAssignment[]
+  auditLogsAuthored    AuditLog[]            @relation("AuditAuthor")
+
+  @@index([auth0Id])
+  @@index([clubId])
+}
+
+model ClubMember {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  // Optional link to a portal account
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  // Member details (exist independently of portal account)
+  firstName        String
+  lastName         String
+  email            String?
+  phone            String?
+  dateOfBirth      DateTime?
+  isUnder18        Boolean   @default(false)
+  membershipNumber String?
+  joinedAt         DateTime?
+  isActive         Boolean   @default(true)
+  notes            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  complianceRecord ComplianceRecord?
+  dbsRecords       DBSRecord[]
+  trainingRecords  TrainingRecord[]
+  volunteerProfile VolunteerProfile?
+
+  @@unique([clubId, email])
+  @@index([clubId])
+}
+
+// ─── MODULE 1: COMPLIANCE SENTINEL ───────────────────────────────────────────
+
+/// Aggregate compliance status per member — computed and cached for fast dashboard queries.
+model ComplianceRecord {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  memberId String     @unique
+  member   ClubMember @relation(fields: [memberId], references: [id])
+
+  // Cached aggregate status (recomputed on DBS/training record changes)
+  overallStatus String    @default("PENDING") // COMPLIANT | PENDING | NON_COMPLIANT
+  dbsStatus     DBSStatus @default(PENDING)
+  dbsExpiryDate DateTime?
+
+  safeHandsValid  Boolean   @default(false)
+  safeHandsExpiry DateTime?
+
+  lastReviewedAt DateTime?
+  lastReviewedBy String?
+  notes          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clubId])
+  @@index([dbsStatus])
+  @@index([dbsExpiryDate])
+}
+
+/// Individual DBS check records. certificateNumber is encrypted at the application layer
+/// before being stored — never stored as plaintext.
+model DBSRecord {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  memberId String
+  member   ClubMember @relation(fields: [memberId], references: [id])
+
+  // Encrypted at app layer (AES-256-GCM). Format: base64(iv:tag:ciphertext)
+  certificateNumberEncrypted String?
+
+  checkDate  DateTime
+  expiryDate DateTime?
+  status     DBSStatus @default(PENDING)
+  checkType  String    @default("ENHANCED") // BASIC | STANDARD | ENHANCED
+
+  issuedBy     String?
+  documentUrl  String? // MinIO/S3 object key — never a public URL
+  uploadedById String?
+
+  notes        String?
+  isSuperseded Boolean @default(false) // Marks older records when a new one is uploaded
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clubId])
+  @@index([memberId])
+  @@index([status])
+  @@index([expiryDate])
+}
+
+model TrainingRecord {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  memberId String
+  member   ClubMember @relation(fields: [memberId], references: [id])
+
+  trainingType   TrainingType
+  customTypeName String? // Required when trainingType = CUSTOM
+
+  completedAt    DateTime
+  expiryDate     DateTime?
+  provider       String? // e.g. "ECB", "RFU", "British Red Cross"
+  certificateRef String? // ECB Safe Hands reference number
+  documentUrl    String?
+  isValid        Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clubId])
+  @@index([memberId])
+  @@index([trainingType])
+  @@index([expiryDate])
+}
+
+// ─── MODULE 2: AI GRANT WRITER ────────────────────────────────────────────────
+
+/// Grant opportunity — can be shared (platform-wide) or club-specific.
+model Grant {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  name        String
+  funderName  String
+  funderUrl   String?
+  description String?
+
+  maxAmount Decimal? @db.Decimal(10, 2)
+  minAmount Decimal? @db.Decimal(10, 2)
+
+  openDate  DateTime?
+  closeDate DateTime?
+
+  eligibilityCriteria String?
+  sportFocus          String[] // ["CRICKET", "RUGBY", "COMMUNITY"]
+  tags                String[]
+
+  status      GrantStatus @default(IDENTIFIED)
+  isRecurring Boolean     @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications GrantApplication[]
+
+  @@index([clubId])
+  @@index([closeDate])
+  @@index([status])
+}
+
+model GrantApplication {
+  id      String @id @default(cuid())
+  grantId String
+  grant   Grant  @relation(fields: [grantId], references: [id])
+
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id])
+
+  status          GrantStatus @default(IN_PROGRESS)
+  amountRequested Decimal?    @db.Decimal(10, 2)
+  amountAwarded   Decimal?    @db.Decimal(10, 2)
+
+  submittedAt   DateTime?
+  decisionAt    DateTime?
+  decisionNotes String?
+  internalNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  proposals GrantProposal[]
+
+  @@index([grantId])
+  @@index([status])
+  @@index([createdById])
+}
+
+/// A single section of a grant proposal. AI drafts are stored alongside the human-edited final.
+model GrantProposal {
+  id            String           @id @default(cuid())
+  applicationId String
+  application   GrantApplication @relation(fields: [applicationId], references: [id])
+
+  sectionTitle String // e.g. "Project Description", "Community Impact", "Budget Justification"
+
+  // AI generation inputs/outputs
+  promptUsed     String? @db.Text
+  aiDraftContent String? @db.Text
+  // Human-edited final content
+  finalContent   String? @db.Text
+
+  wordCount  Int?
+  version    Int     @default(1)
+  isApproved Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([applicationId])
+}
+
+// ─── MODULE 3: FIXTURE & VOLUNTEER MANAGER ───────────────────────────────────
+
+model Fixture {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("FixtureCreator", fields: [createdById], references: [id])
+
+  sport         ClubSport
+  fixtureDate   DateTime
+  kickoffTime   String? // e.g. "14:00"
+  homeTeamName  String
+  awayTeamName  String
+  isHomeFixture Boolean       @default(true)
+  venue         String?
+  venuePostcode String?
+  status        FixtureStatus @default(SCHEDULED)
+
+  ageGroup    String? // "1st XI", "Under 14s", etc.
+  competition String? // "Saturday League Division 2"
+
+  oppositionContact  String?
+  resultsNotes       String?
+  cancellationReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  volunteerAssignments VolunteerAssignment[]
+
+  @@index([clubId])
+  @@index([fixtureDate])
+  @@index([status])
+}
+
+model VolunteerProfile {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  memberId String     @unique
+  member   ClubMember @relation(fields: [memberId], references: [id])
+
+  availableRoles     VolunteerRole[]
+  isAvailableGeneral Boolean         @default(true)
+  notes              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments VolunteerAssignment[]
+
+  @@index([clubId])
+}
+
+model VolunteerAssignment {
+  id           String           @id @default(cuid())
+  fixtureId    String
+  fixture      Fixture          @relation(fields: [fixtureId], references: [id])
+  volunteerId  String
+  volunteer    VolunteerProfile @relation(fields: [volunteerId], references: [id])
+  assignedById String
+  assignedBy   User             @relation(fields: [assignedById], references: [id])
+
+  role           VolunteerRole
+  customRoleName String? // Required when role = CUSTOM
+
+  confirmedAt DateTime?
+  declinedAt  DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fixtureId, volunteerId, role])
+  @@index([fixtureId])
+  @@index([volunteerId])
+}
+
+// ─── AUDIT INFRASTRUCTURE ────────────────────────────────────────────────────
+
+/// Append-only audit log. No updatedAt. Never UPDATE or DELETE rows from this table.
+/// Required for UK GDPR accountability and safeguarding compliance.
+model AuditLog {
+  id     String @id @default(cuid())
+  clubId String
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  userId String?
+  author User?   @relation("AuditAuthor", fields: [userId], references: [id])
+
+  action     AuditAction
+  entityType String // "DBSRecord" | "ComplianceRecord" | "TrainingRecord" etc.
+  entityId   String
+
+  changedFields Json? // { "fieldName": ["oldValue", "newValue"] }
+  ipAddress     String?
+  userAgent     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([clubId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

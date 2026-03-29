@@ -1,0 +1,62 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+build
+.next
+out
+
+# Turbo
+.turbo
+
+# TypeScript
+*.tsbuildinfo
+
+# Test coverage
+coverage
+.nyc_output
+
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.*.local
+# Allow .env.example files
+!.env.example
+
+# Prisma
+prisma/.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+*.swp
+*.swo
+
+# Docker volumes (if mounted locally)
+postgres-data
+redis-data
+minio-data
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
+# MinIO
+.minio
