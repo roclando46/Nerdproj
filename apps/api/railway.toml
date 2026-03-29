@@ -1,6 +1,6 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npx turbo run build --filter=@dcs/api..."
+buildCommand = "npx prisma generate --schema=packages/database/prisma/schema.prisma && npx turbo run build --filter=@dcs/api..."
 
 [deploy]
 startCommand = "npm run db:migrate:prod && node apps/api/dist/server.js"
