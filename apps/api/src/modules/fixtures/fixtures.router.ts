@@ -1,64 +1,117 @@
 import { Router } from 'express';
 import { requireAuth, extractTenancy } from '../../middleware/auth.js';
+import { auditLog } from '../../middleware/audit.js';
+import { validate, IdParamSchema } from '../../middleware/validate.js';
+import {
+  ListQuerySchema,
+  CreateFixtureSchema,
+  UpdateFixtureSchema,
+  CreateAssignmentSchema,
+  UpdateAssignmentSchema,
+  UpsertVolunteerProfileSchema,
+  AutoSuggestSchema,
+  AssignmentParamSchema,
+} from './fixtures.schema.js';
+import * as controller from './fixtures.controller.js';
 
 const router = Router();
 
 router.use(requireAuth, extractTenancy);
 
-// Fixtures
-router.get('/', (_req, res) => {
-  res.json({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
-});
+// ─── Static routes — MUST come before /:id ───────────────────────────────────
 
-router.get('/upcoming', (_req, res) => {
-  res.json({ data: [] });
-});
+router.get('/upcoming', controller.getUpcoming);
 
-router.get('/calendar', (_req, res) => {
-  // Returns iCal format in production
-  res.set('Content-Type', 'text/calendar');
-  res.send('BEGIN:VCALENDAR\nVERSION:2.0\nEND:VCALENDAR');
-});
+router.get('/calendar', controller.generateIcal);
 
-router.post('/', (_req, res) => {
-  res.status(201).json({ message: 'Fixture created — implementation pending' });
-});
+router.get('/volunteers', controller.listVolunteerProfiles);
 
-router.get('/:id', (req, res) => {
-  res.json({ id: req.params['id'] });
-});
+router.post(
+  '/volunteers',
+  validate({ body: UpsertVolunteerProfileSchema }),
+  controller.upsertVolunteerProfile,
+);
 
-router.patch('/:id', (req, res) => {
-  res.json({ id: req.params['id'], updated: true });
-});
+// ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-router.delete('/:id', (req, res) => {
-  res.json({ id: req.params['id'], deleted: true });
-});
+router.get('/', validate({ query: ListQuerySchema }), controller.listFixtures);
 
-// Volunteer assignments for a fixture
-router.get('/:id/assignments', (req, res) => {
-  res.json({ fixtureId: req.params['id'], data: [] });
-});
+router.post(
+  '/',
+  validate({ body: CreateFixtureSchema }),
+  auditLog({
+    action: 'CREATE',
+    entityType: 'Fixture',
+    getEntityId: (req) => (req.body as { homeTeamName?: string })?.homeTeamName ?? 'unknown',
+  }),
+  controller.createFixture,
+);
 
-router.post('/:id/assignments', (req, res) => {
-  res.status(201).json({ fixtureId: req.params['id'], message: 'Volunteer assigned' });
-});
+router.get('/:id', validate({ params: IdParamSchema }), controller.getFixture);
 
-router.patch('/:id/assignments/:assignmentId', (req, res) => {
-  res.json({ id: req.params['assignmentId'], updated: true });
-});
+router.patch(
+  '/:id',
+  validate({ params: IdParamSchema, body: UpdateFixtureSchema }),
+  auditLog({
+    action: 'UPDATE',
+    entityType: 'Fixture',
+    getEntityId: (req) => req.params['id'] as string,
+  }),
+  controller.updateFixture,
+);
 
-router.delete('/:id/assignments/:assignmentId', (req, res) => {
-  res.json({ id: req.params['assignmentId'], deleted: true });
-});
+router.delete(
+  '/:id',
+  validate({ params: IdParamSchema }),
+  auditLog({
+    action: 'DELETE',
+    entityType: 'Fixture',
+    getEntityId: (req) => req.params['id'] as string,
+  }),
+  controller.deleteFixture,
+);
 
-router.post('/:id/assignments/auto-suggest', (req, res) => {
-  res.json({
-    fixtureId: req.params['id'],
-    suggestions: [],
-    message: 'AI volunteer matching — implementation pending',
-  });
-});
+// ─── Assignments — auto-suggest MUST come before /:assignmentId ──────────────
+
+router.post(
+  '/:id/assignments/auto-suggest',
+  validate({ params: IdParamSchema, body: AutoSuggestSchema }),
+  controller.autoSuggestVolunteers,
+);
+
+router.get('/:id/assignments', validate({ params: IdParamSchema }), controller.listAssignments);
+
+router.post(
+  '/:id/assignments',
+  validate({ params: IdParamSchema, body: CreateAssignmentSchema }),
+  auditLog({
+    action: 'CREATE',
+    entityType: 'VolunteerAssignment',
+    getEntityId: (req) => req.params['id'] as string,
+  }),
+  controller.createAssignment,
+);
+
+router.patch(
+  '/:id/assignments/:assignmentId',
+  validate({ params: AssignmentParamSchema, body: UpdateAssignmentSchema }),
+  auditLog({
+    action: 'UPDATE',
+    entityType: 'VolunteerAssignment',
+    getEntityId: (req) => req.params['assignmentId'] as string,
+  }),
+  controller.updateAssignment,
+);
+
+router.delete(
+  '/:id/assignments/:assignmentId',
+  validate({ params: AssignmentParamSchema }),
+  auditLog({
+    action: 'DELETE',
+    entityType: 'VolunteerAssignment',
+    getEntityId: (req) => req.params['assignmentId'] as string,
+  }),
+  controller.deleteAssignment,
+);
 
 export { router as fixturesRouter };

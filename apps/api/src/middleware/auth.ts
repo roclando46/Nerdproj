@@ -6,14 +6,16 @@ import { env } from '../config/env.js';
  * Validates Auth0 JWT access tokens.
  * In development without Auth0 configured, falls through (API routes are unprotected).
  */
+const auth0Configured =
+  env.AUTH0_DOMAIN && env.AUTH0_DOMAIN !== 'your-tenant.uk.auth0.com' && env.AUTH0_AUDIENCE;
+
 export const requireAuth: (req: Request, res: Response, next: NextFunction) => void =
-  env.AUTH0_DOMAIN && env.AUTH0_AUDIENCE
+  auth0Configured
     ? auth({
         issuerBaseURL: `https://${env.AUTH0_DOMAIN}/`,
         audience: env.AUTH0_AUDIENCE,
       })
     : (_req, _res, next) => {
-        console.warn('[auth] Auth0 not configured — skipping JWT validation (dev only)');
         next();
       };
 
@@ -32,8 +34,8 @@ export function extractTenancy(req: Request, _res: Response, next: NextFunction)
 
   // In development without Auth0, use the seeded demo club
   if (!clubId) {
-    if (env.NODE_ENV === 'development' && !env.AUTH0_DOMAIN) {
-      req.clubId = 'dev-club-placeholder';
+    if (env.NODE_ENV === 'development' && !auth0Configured) {
+      req.clubId = 'cldevclub0000000000001'; // matches seed.ts DEV_CLUB_ID
       req.userRole = 'CLUB_ADMIN';
       next();
       return;

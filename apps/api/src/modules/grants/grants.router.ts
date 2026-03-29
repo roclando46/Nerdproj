@@ -1,82 +1,122 @@
 import { Router } from 'express';
 import { requireAuth, extractTenancy } from '../../middleware/auth.js';
 import { aiRateLimiter } from '../../middleware/rateLimiter.js';
+import { auditLog } from '../../middleware/audit.js';
+import { validate, IdParamSchema } from '../../middleware/validate.js';
+import {
+  ListQuerySchema,
+  CreateGrantSchema,
+  UpdateGrantSchema,
+  CreateApplicationSchema,
+  UpdateApplicationSchema,
+  CreateProposalSchema,
+  UpdateProposalSchema,
+  GenerateProposalSchema,
+  ProposalParamSchema,
+} from './grants.schema.js';
+import * as controller from './grants.controller.js';
 
 const router = Router();
 
 router.use(requireAuth, extractTenancy);
 
-// Grant opportunities
-router.get('/', (_req, res) => {
-  res.json({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
-});
+// ─── Applications — MUST come before /:id ────────────────────────────────────
 
-router.post('/', (_req, res) => {
-  res.status(201).json({ message: 'Grant created — implementation pending' });
-});
+router.get('/applications', validate({ query: ListQuerySchema }), controller.listApplications);
 
-router.get('/:id', (req, res) => {
-  res.json({ id: req.params['id'] });
-});
+router.post(
+  '/applications',
+  validate({ body: CreateApplicationSchema }),
+  auditLog({
+    action: 'CREATE',
+    entityType: 'GrantApplication',
+    getEntityId: (req) => (req.body as { grantId?: string })?.grantId,
+  }),
+  controller.createApplication,
+);
 
-router.patch('/:id', (req, res) => {
-  res.json({ id: req.params['id'], updated: true });
-});
+router.get('/applications/:id', validate({ params: IdParamSchema }), controller.getApplication);
 
-router.delete('/:id', (req, res) => {
-  res.json({ id: req.params['id'], deleted: true });
-});
+router.patch(
+  '/applications/:id',
+  validate({ params: IdParamSchema, body: UpdateApplicationSchema }),
+  auditLog({
+    action: 'UPDATE',
+    entityType: 'GrantApplication',
+    getEntityId: (req) => req.params['id'] as string,
+  }),
+  controller.updateApplication,
+);
 
-// Grant applications
-router.get('/applications', (_req, res) => {
-  res.json({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 });
-});
+router.get(
+  '/applications/:id/proposals',
+  validate({ params: IdParamSchema }),
+  controller.listProposals,
+);
 
-router.post('/applications', (_req, res) => {
-  res.status(201).json({ message: 'Application created — implementation pending' });
-});
+router.post(
+  '/applications/:id/proposals',
+  validate({ params: IdParamSchema, body: CreateProposalSchema }),
+  controller.createProposal,
+);
 
-router.get('/applications/:id', (req, res) => {
-  res.json({ id: req.params['id'] });
-});
+router.patch(
+  '/applications/:id/proposals/:proposalId',
+  validate({ params: ProposalParamSchema, body: UpdateProposalSchema }),
+  controller.updateProposal,
+);
 
-router.patch('/applications/:id', (req, res) => {
-  res.json({ id: req.params['id'], updated: true });
-});
+router.post(
+  '/applications/:id/proposals/:proposalId/generate',
+  aiRateLimiter,
+  validate({ params: ProposalParamSchema, body: GenerateProposalSchema }),
+  controller.generateDraft,
+);
 
-router.delete('/applications/:id', (req, res) => {
-  res.json({ id: req.params['id'], deleted: true });
-});
+router.post(
+  '/applications/:id/proposals/:proposalId/regenerate',
+  aiRateLimiter,
+  validate({ params: ProposalParamSchema, body: GenerateProposalSchema }),
+  controller.generateDraft,
+);
 
-// Proposals
-router.get('/applications/:id/proposals', (req, res) => {
-  res.json({ applicationId: req.params['id'], data: [] });
-});
+// ─── Grants (after /applications) ────────────────────────────────────────────
 
-router.post('/applications/:id/proposals', (req, res) => {
-  res.status(201).json({ applicationId: req.params['id'], message: 'Proposal section created' });
-});
+router.get('/', validate({ query: ListQuerySchema }), controller.listGrants);
 
-router.get('/applications/:id/proposals/:proposalId', (req, res) => {
-  res.json({ id: req.params['proposalId'], applicationId: req.params['id'] });
-});
+router.post(
+  '/',
+  validate({ body: CreateGrantSchema }),
+  auditLog({
+    action: 'CREATE',
+    entityType: 'Grant',
+    getEntityId: (req) => req.body?.name as string,
+  }),
+  controller.createGrant,
+);
 
-router.patch('/applications/:id/proposals/:proposalId', (req, res) => {
-  res.json({ id: req.params['proposalId'], updated: true });
-});
+router.get('/:id', validate({ params: IdParamSchema }), controller.getGrant);
 
-// AI generation — rate-limited
-router.post('/applications/:id/proposals/:proposalId/generate', aiRateLimiter, (req, res) => {
-  res
-    .status(200)
-    .json({
-      message: 'AI generation — Anthropic SDK integration pending',
-      proposalId: req.params['proposalId'],
-    });
-});
+router.patch(
+  '/:id',
+  validate({ params: IdParamSchema, body: UpdateGrantSchema }),
+  auditLog({
+    action: 'UPDATE',
+    entityType: 'Grant',
+    getEntityId: (req) => req.params['id'] as string,
+  }),
+  controller.updateGrant,
+);
 
-router.post('/applications/:id/proposals/:proposalId/regenerate', aiRateLimiter, (req, res) => {
-  res.json({ message: 'AI regeneration — pending', proposalId: req.params['proposalId'] });
-});
+router.delete(
+  '/:id',
+  validate({ params: IdParamSchema }),
+  auditLog({
+    action: 'DELETE',
+    entityType: 'Grant',
+    getEntityId: (req) => req.params['id'] as string,
+  }),
+  controller.deleteGrant,
+);
 
 export { router as grantsRouter };

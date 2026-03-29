@@ -18,14 +18,14 @@ const envSchema = z.object({
   AUTH0_AUDIENCE: z.string().optional(),
 
   // Anthropic — optional until AI Grant Writer is implemented
-  ANTHROPIC_API_KEY: z.string().startsWith('sk-ant-').optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
 
   // Stripe — optional until billing is implemented
-  STRIPE_SECRET_KEY: z.string().startsWith('sk_').optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().startsWith('whsec_').optional(),
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
   // SendGrid — optional until email is implemented
-  SENDGRID_API_KEY: z.string().startsWith('SG.').optional(),
+  SENDGRID_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().email().optional(),
   EMAIL_FROM_NAME: z.string().min(1).default('Digital Club Secretary'),
 
